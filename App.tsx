@@ -25,6 +25,7 @@ const TABS: { id: Tab; icon: string; label: string }[] = [
 function AppInner() {
   const [tab, setTab] = useState<Tab>('home');
   const [balance, setBalance] = useState<Balance | null>(null);
+  const [initialBalance, setInitialBalance] = useState<Balance>(initBalance());
   const [todayPlanned, setTodayPlanned] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -34,8 +35,13 @@ function AppInner() {
     const { data } = await supabase.from('qada_balance').select('*');
     if (data) {
       const bal = initBalance();
-      data.forEach((r: any) => { bal[r.prayer_type as PrayerType] = r.remaining; });
+      const init = initBalance();
+      data.forEach((r: any) => {
+        bal[r.prayer_type as PrayerType] = r.remaining;
+        init[r.prayer_type as PrayerType] = r.initial_remaining ?? r.remaining;
+      });
       setBalance(bal);
+      setInitialBalance(init);
     }
   }
 
@@ -55,16 +61,22 @@ function AppInner() {
   }
 
   async function handleSaveBalance(newBalance: Balance) {
+    // Only set initial_remaining once (if currently 0/null) — preserves starting point
+    const { data: existing } = await supabase.from('qada_balance').select('prayer_type, initial_remaining');
+    const existingInitials: Record<string, number | null> = {};
+    (existing || []).forEach((r: any) => { existingInitials[r.prayer_type] = r.initial_remaining; });
+
     const updates = PRAYERS.map(p => ({
       prayer_type: p,
       remaining: newBalance[p] ?? 0,
+      initial_remaining: existingInitials[p] ?? newBalance[p] ?? 0,
       updated_at: new Date().toISOString(),
     }));
     await supabase.from('balance_snapshots').insert({
       snapshot_date: todayISO(), ...newBalance, trigger_reason: 'manual_update',
     });
     await supabase.from('qada_balance').upsert(updates, { onConflict: 'prayer_type' });
-    setBalance(newBalance);
+    await loadBalance();
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     showToast('Balance saved ✓');
     setTab('home');
@@ -120,7 +132,7 @@ function AppInner() {
         {/* Screen content */}
         <View style={{ flex: 1 }}>
           {tab === 'home' && (
-            <HomeScreen balance={balance} todayPlanned={todayPlanned} />
+            <HomeScreen balance={balance} initialBalance={initialBalance} todayPlanned={todayPlanned} />
           )}
           {tab === 'planner' && (
             <PlannerScreen balance={balance} onBalanceChange={handleBalanceChange} />

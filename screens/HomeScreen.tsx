@@ -9,16 +9,20 @@ const CARD_W = (width - 48) / 2;
 
 interface Props {
   balance: Balance;
+  initialBalance: Balance;
   todayPlanned: number;
 }
 
-export default function HomeScreen({ balance, todayPlanned }: Props) {
+export default function HomeScreen({ balance, initialBalance, todayPlanned }: Props) {
   const { settings } = useSettings();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const riseAnim = useRef(new Animated.Value(24)).current;
   const cardAnims = useRef(PRAYERS.map(() => new Animated.Value(0))).current;
 
   const total = useMemo(() => PRAYERS.reduce((s, p) => s + (balance[p] || 0), 0), [balance]);
+  const totalInitial = useMemo(() => PRAYERS.reduce((s, p) => s + (initialBalance[p] || 0), 0), [initialBalance]);
+  const totalCompleted = Math.max(0, totalInitial - total);
+  const overallProgress = totalInitial > 0 ? totalCompleted / totalInitial : 0;
   const goalMet = todayPlanned >= settings.dailyCommitment;
 
   useEffect(() => {
@@ -51,7 +55,17 @@ export default function HomeScreen({ balance, todayPlanned }: Props) {
         <Text style={styles.heroMoon}>🌙</Text>
         <Text style={styles.heroNum}>{total.toLocaleString()}</Text>
         <Text style={styles.heroLabel}>prayers remaining</Text>
-        {total === 0 && (
+        {totalInitial > 0 && (
+          <View style={styles.heroProgressWrap}>
+            <View style={styles.heroProgressTrack}>
+              <View style={[styles.heroProgressFill, { width: `${Math.round(overallProgress * 100)}%` }]} />
+            </View>
+            <Text style={styles.heroProgressLabel}>
+              {totalCompleted.toLocaleString()} completed of {totalInitial.toLocaleString()}
+            </Text>
+          </View>
+        )}
+        {total === 0 && totalInitial > 0 && (
           <Text style={styles.heroComplete}>Masha'Allah — all complete ✨</Text>
         )}
       </Animated.View>
@@ -82,6 +96,21 @@ export default function HomeScreen({ balance, todayPlanned }: Props) {
               </Text>
               <Text style={[styles.cardName, { color: c.hex }]}>{c.name}</Text>
               <Text style={styles.cardArabic}>{c.arabic}</Text>
+              {(() => {
+                const init = initialBalance[prayer] || 0;
+                const done = Math.max(0, init - count);
+                const pct = init > 0 ? done / init : 0;
+                return init > 0 ? (
+                  <View style={styles.cardProgressWrap}>
+                    <View style={styles.cardProgressTrack}>
+                      <View style={[styles.cardProgressFill, { width: `${Math.round(pct * 100)}%`, backgroundColor: c.hex }]} />
+                    </View>
+                    <Text style={[styles.cardProgressLabel, { color: c.hex }]}>
+                      {done}/{init}
+                    </Text>
+                  </View>
+                ) : null;
+              })()}
               {count === 0 && (
                 <View style={[styles.doneBadge, { borderColor: c.borderHex }]}>
                   <Text style={[styles.doneBadgeText, { color: c.hex }]}>Done ✓</Text>
@@ -157,6 +186,10 @@ const styles = StyleSheet.create({
   heroNum: { fontSize: 64, fontWeight: '900', color: '#fff', letterSpacing: -2 },
   heroLabel: { fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
   heroComplete: { fontSize: 13, color: '#a78bfa', marginTop: 8, fontWeight: '600' },
+  heroProgressWrap: { width: '100%', marginTop: 12, gap: 5 },
+  heroProgressTrack: { height: 5, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' },
+  heroProgressFill: { height: '100%', backgroundColor: '#a78bfa', borderRadius: 3 },
+  heroProgressLabel: { fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' },
 
   grid: {
     flexDirection: 'row',
@@ -179,6 +212,10 @@ const styles = StyleSheet.create({
   cardCount: { fontSize: 32, fontWeight: '900', letterSpacing: -1 },
   cardName: { fontSize: 13, fontWeight: '700' },
   cardArabic: { fontSize: 12, color: 'rgba(255,255,255,0.3)' },
+  cardProgressWrap: { width: '100%', gap: 3, marginTop: 4 },
+  cardProgressTrack: { height: 3, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' },
+  cardProgressFill: { height: '100%', borderRadius: 2 },
+  cardProgressLabel: { fontSize: 9, fontWeight: '600', textAlign: 'center', opacity: 0.7 },
   doneBadge: {
     marginTop: 6,
     borderWidth: 1,
