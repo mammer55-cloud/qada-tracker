@@ -5,7 +5,10 @@
       "mcp__claude_ai_Supabase__apply_migration",
       "Bash(npm install:*)",
       "Bash(npm run:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(gh repo:*)",
+      "Bash(rm:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
