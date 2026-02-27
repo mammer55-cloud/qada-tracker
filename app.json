@@ -25,6 +25,16 @@
         "backgroundColor": "#0a0f1e"
       },
       "edgeToEdgeEnabled": true
-    }
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#a78bfa",
+          "sounds": []
+        }
+      ]
+    ]
   }
 }

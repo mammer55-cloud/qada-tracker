@@ -15,27 +15,28 @@ export default function FardPrayerSection({ prayer, assignments, onRemove }: Pro
   const afterKey = `${prayer}::after`;
 
   return (
-    <View style={styles.card}>
-      {/* Before */}
-      <View style={styles.slotWrap}>
-        <Text style={styles.slotLabel}>BEFORE</Text>
-        <SlotDropZone id={beforeKey} chips={assignments[beforeKey] || []} onRemove={onRemove} />
-      </View>
+    <View style={[styles.card, { borderColor: 'rgba(255,255,255,0.07)' }]}>
+      <View style={styles.row}>
 
-      {/* Fard divider */}
-      <View style={[styles.divider, { backgroundColor: c.dimHex, borderColor: c.borderHex }]}>
-        <Text style={styles.dividerIcon}>{c.icon}</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.dividerName}>{c.name}</Text>
-          <Text style={styles.dividerArabic}>{c.arabic}</Text>
+        {/* LEFT — Before */}
+        <View style={styles.slotCol}>
+          <Text style={styles.slotLabel}>BEFORE</Text>
+          <SlotDropZone id={beforeKey} chips={assignments[beforeKey] || []} onRemove={onRemove} />
         </View>
-        <Text style={styles.dividerTime}>{c.time}</Text>
-      </View>
 
-      {/* After */}
-      <View style={styles.slotWrap}>
-        <Text style={styles.slotLabel}>AFTER</Text>
-        <SlotDropZone id={afterKey} chips={assignments[afterKey] || []} onRemove={onRemove} />
+        {/* CENTER — Fard prayer */}
+        <View style={[styles.center, { backgroundColor: c.dimHex, borderColor: c.borderHex }]}>
+          <Text style={styles.centerIcon}>{c.icon}</Text>
+          <Text style={[styles.centerName, { color: c.hex }]}>{c.name}</Text>
+          <Text style={styles.centerArabic}>{c.arabic}</Text>
+        </View>
+
+        {/* RIGHT — After */}
+        <View style={styles.slotCol}>
+          <Text style={[styles.slotLabel, styles.slotLabelRight]}>AFTER</Text>
+          <SlotDropZone id={afterKey} chips={assignments[afterKey] || []} onRemove={onRemove} />
+        </View>
+
       </View>
     </View>
   );
@@ -43,38 +44,41 @@ export default function FardPrayerSection({ prayer, assignments, onRemove }: Pro
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    marginBottom: 8,
+    padding: 8,
   },
-  slotWrap: {
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 8,
+  row: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 6,
+  },
+  slotCol: {
+    flex: 1,
   },
   slotLabel: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '700',
-    letterSpacing: 1.5,
-    color: 'rgba(255,255,255,0.22)',
-    marginBottom: 6,
+    letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.2)',
+    marginBottom: 4,
+    textAlign: 'left',
   },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    marginHorizontal: 10,
-    marginVertical: 2,
+  slotLabelRight: {
+    textAlign: 'right',
+  },
+  center: {
+    width: 76,
     borderRadius: 14,
     borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 3,
   },
-  dividerIcon: { fontSize: 22 },
-  dividerName: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  dividerArabic: { color: 'rgba(255,255,255,0.35)', fontSize: 12, marginTop: 1 },
-  dividerTime: { color: 'rgba(255,255,255,0.22)', fontSize: 11 },
+  centerIcon: { fontSize: 20 },
+  centerName: { fontSize: 11, fontWeight: '800' },
+  centerArabic: { fontSize: 10, color: 'rgba(255,255,255,0.35)' },
 });

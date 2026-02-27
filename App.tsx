@@ -1,91 +1,64 @@
 import 'react-native-url-polyfill/auto';
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
-} from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { supabase } from './lib/supabase';
 import {
-  PRAYERS, PrayerType, Balance, Assignments, initAssignments, initBalance,
-  todayISO, todayLabel, SLOTS, SlotKey,
+  PRAYERS, PrayerType, Balance, Assignments, initBalance,
+  todayISO, SLOTS, SlotKey, initAssignments,
 } from './lib/prayers';
-import SetupScreen from './screens/SetupScreen';
+import { SettingsProvider } from './contexts/SettingsContext';
+import HomeScreen from './screens/HomeScreen';
 import PlannerScreen from './screens/PlannerScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import SetupScreen from './screens/SetupScreen';
 
-type Screen = 'planner' | 'setup';
+type Tab = 'home' | 'planner' | 'settings';
 
-export default function App() {
-  const [screen, setScreen] = useState<Screen>('planner');
+const TABS: { id: Tab; icon: string; label: string }[] = [
+  { id: 'home',     icon: '🏠', label: 'Home'     },
+  { id: 'planner',  icon: '📅', label: 'Plan'     },
+  { id: 'settings', icon: '⚙️', label: 'Settings' },
+];
+
+function AppInner() {
+  const [tab, setTab] = useState<Tab>('home');
   const [balance, setBalance] = useState<Balance | null>(null);
-  const [assignments, setAssignments] = useState<Assignments>(initAssignments());
-  const [planId, setPlanId] = useState<string | null>(null);
-  const [completedToday, setCompletedToday] = useState(false);
+  const [todayPlanned, setTodayPlanned] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadBalance(); loadTodayCount(); }, []);
 
-  async function loadData() {
-    const [{ data: balRows }, { data: plan }] = await Promise.all([
-      supabase.from('qada_balance').select('*'),
-      supabase.from('daily_plans').select('*, plan_assignments(*)').eq('plan_date', todayISO()).maybeSingle(),
-    ]);
-
-    if (balRows) {
+  async function loadBalance() {
+    const { data } = await supabase.from('qada_balance').select('*');
+    if (data) {
       const bal = initBalance();
-      balRows.forEach((r: any) => { bal[r.prayer_type as PrayerType] = r.remaining; });
+      data.forEach((r: any) => { bal[r.prayer_type as PrayerType] = r.remaining; });
       setBalance(bal);
     }
+  }
 
-    if (plan) {
-      setPlanId(plan.id);
-      setCompletedToday(plan.is_completed);
-      const map = initAssignments();
-      (plan.plan_assignments || []).forEach((a: any) => {
-        const key: SlotKey = `${a.fard_prayer}::${a.slot}`;
-        if (map[key]) map[key].push({ id: a.id, type: a.qada_prayer_type as PrayerType, orderIndex: a.order_index });
-      });
-      SLOTS.forEach(k => { map[k].sort((a: any, b: any) => a.orderIndex - b.orderIndex); });
-      setAssignments(map);
+  async function loadTodayCount() {
+    const { data: plan } = await supabase
+      .from('daily_plans')
+      .select('id')
+      .eq('plan_date', todayISO())
+      .maybeSingle();
+    if (plan?.id) {
+      const { count } = await supabase
+        .from('plan_assignments')
+        .select('*', { count: 'exact', head: true })
+        .eq('plan_id', plan.id);
+      setTodayPlanned(count ?? 0);
     }
-  }
-
-  function scheduleSave(newAssignments: Assignments) {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => savePlan(newAssignments), 900);
-  }
-
-  async function savePlan(current: Assignments) {
-    let pid = planId;
-    if (!pid) {
-      const { data } = await supabase
-        .from('daily_plans')
-        .upsert({ plan_date: todayISO() }, { onConflict: 'plan_date' })
-        .select('id').single();
-      if (!data) return;
-      pid = data.id;
-      setPlanId(pid);
-    }
-    await supabase.from('plan_assignments').delete().eq('plan_id', pid);
-    const rows: any[] = [];
-    SLOTS.forEach(slotKey => {
-      const [fardPrayer, slot] = slotKey.split('::');
-      (current[slotKey] || []).forEach((chip, idx) => {
-        rows.push({ plan_id: pid, fard_prayer: fardPrayer, slot, qada_prayer_type: chip.type, order_index: idx });
-      });
-    });
-    if (rows.length) await supabase.from('plan_assignments').insert(rows);
-  }
-
-  function handleAssignmentsChange(newAssignments: Assignments) {
-    setAssignments(newAssignments);
-    scheduleSave(newAssignments);
   }
 
   async function handleSaveBalance(newBalance: Balance) {
     const updates = PRAYERS.map(p => ({
-      prayer_type: p, remaining: newBalance[p] ?? 0, updated_at: new Date().toISOString(),
+      prayer_type: p,
+      remaining: newBalance[p] ?? 0,
+      updated_at: new Date().toISOString(),
     }));
     await supabase.from('balance_snapshots').insert({
       snapshot_date: todayISO(), ...newBalance, trigger_reason: 'manual_update',
@@ -94,30 +67,12 @@ export default function App() {
     setBalance(newBalance);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     showToast('Balance saved ✓');
-    setScreen('planner');
+    setTab('home');
   }
 
-  async function handleCompleteDay(plannedCounts: Record<PrayerType, number>) {
-    if (!balance) return;
-    await supabase.from('balance_snapshots').insert({
-      snapshot_date: todayISO(), ...balance, trigger_reason: 'pre_complete',
-    });
-    const newBalance = { ...balance };
-    const updates = PRAYERS.map(p => {
-      const completed = Math.min(plannedCounts[p] || 0, balance[p] || 0);
-      newBalance[p] = (balance[p] || 0) - completed;
-      return { prayer_type: p, remaining: newBalance[p], updated_at: new Date().toISOString() };
-    });
-    await supabase.from('qada_balance').upsert(updates, { onConflict: 'prayer_type' });
-    await supabase.from('balance_snapshots').insert({
-      snapshot_date: todayISO(), ...newBalance, trigger_reason: 'post_complete',
-    });
-    if (planId) await supabase.from('daily_plans').update({ is_completed: true }).eq('id', planId);
+  function handleBalanceChange(newBalance: Balance) {
     setBalance(newBalance);
-    setCompletedToday(true);
-    const total = PRAYERS.reduce((s, p) => s + (plannedCounts[p] || 0), 0);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    showToast(`Masha'Allah! ${total} qada completed ✓`);
+    loadTodayCount();
   }
 
   function showToast(msg: string) {
@@ -125,8 +80,14 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  // Loading
-  if (!balance) {
+  function switchTab(t: Tab) {
+    setTab(t);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (t === 'home') loadTodayCount();
+  }
+
+  // First-time setup
+  if (balance === null) {
     return (
       <View style={styles.loading}>
         <StatusBar style="light" />
@@ -137,54 +98,55 @@ export default function App() {
   }
 
   const hasBalance = PRAYERS.some(p => (balance[p] || 0) > 0);
-  const showSetup = screen === 'setup' || !hasBalance;
+  if (!hasBalance && tab !== 'settings') {
+    return (
+      <View style={styles.root}>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.setupHeader}>
+            <Text style={styles.setupMoon}>🌙</Text>
+            <Text style={styles.setupTitle}>Qada Tracker</Text>
+          </View>
+          <SetupScreen balance={balance} onSave={handleSaveBalance} isFirstTime />
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <SafeAreaView style={styles.safe}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.headerMoon}>🌙</Text>
-            <View>
-              <Text style={styles.headerTitle}>Qada Tracker</Text>
-              <Text style={styles.headerDate}>{todayLabel()}</Text>
-            </View>
-          </View>
-          <View style={styles.headerRight}>
-            {completedToday && (
-              <View style={styles.donePill}>
-                <Text style={styles.donePillText}>Done ✓</Text>
-              </View>
-            )}
-            <TouchableOpacity
-              onPress={() => setScreen(screen === 'setup' ? 'planner' : 'setup')}
-              style={[styles.gearBtn, screen === 'setup' && styles.gearBtnActive]}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.gearIcon}>{screen === 'setup' ? '✕' : '⚙️'}</Text>
-            </TouchableOpacity>
-          </View>
+        {/* Screen content */}
+        <View style={{ flex: 1 }}>
+          {tab === 'home' && (
+            <HomeScreen balance={balance} todayPlanned={todayPlanned} />
+          )}
+          {tab === 'planner' && (
+            <PlannerScreen balance={balance} onBalanceChange={handleBalanceChange} />
+          )}
+          {tab === 'settings' && (
+            <SettingsScreen balance={balance} onSaveBalance={handleSaveBalance} />
+          )}
         </View>
 
-        {/* Content */}
-        <View style={{ flex: 1 }}>
-          {showSetup ? (
-            <SetupScreen
-              balance={balance}
-              onSave={handleSaveBalance}
-              isFirstTime={!hasBalance}
-            />
-          ) : (
-            <PlannerScreen
-              balance={balance}
-              assignments={assignments}
-              completedToday={completedToday}
-              onAssignmentsChange={handleAssignmentsChange}
-              onCompleteDay={handleCompleteDay}
-            />
-          )}
+        {/* Tab bar */}
+        <View style={styles.tabBar}>
+          {TABS.map(t => {
+            const active = tab === t.id;
+            return (
+              <TouchableOpacity
+                key={t.id}
+                onPress={() => switchTab(t.id)}
+                style={styles.tabItem}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{t.icon}</Text>
+                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{t.label}</Text>
+                {active && <View style={styles.tabDot} />}
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </SafeAreaView>
 
@@ -198,55 +160,44 @@ export default function App() {
   );
 }
 
+export default function App() {
+  return (
+    <SettingsProvider>
+      <AppInner />
+    </SettingsProvider>
+  );
+}
+
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#0a0f1e',
-  },
+  root: { flex: 1, backgroundColor: '#0a0f1e' },
   safe: { flex: 1 },
-  loading: {
-    flex: 1,
-    backgroundColor: '#0a0f1e',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
+  loading: { flex: 1, backgroundColor: '#0a0f1e', alignItems: 'center', justifyContent: 'center', gap: 12 },
   loadingMoon: { fontSize: 48 },
   loadingText: { color: 'rgba(255,255,255,0.35)', fontSize: 14 },
-  header: {
+  setupHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  setupMoon: { fontSize: 26 },
+  setupTitle: { color: '#fff', fontSize: 20, fontWeight: '800' },
+
+  tabBar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(10,15,30,0.98)',
+    paddingBottom: 4,
     paddingTop: 8,
-    paddingBottom: 12,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  headerMoon: { fontSize: 26 },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  headerDate: { color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 1 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  donePill: {
-    backgroundColor: 'rgba(167,139,250,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(167,139,250,0.3)',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  donePillText: { color: '#a78bfa', fontSize: 11, fontWeight: '600' },
-  gearBtn: {
-    width: 36, height: 36, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  gearBtnActive: { backgroundColor: 'rgba(167,139,250,0.2)' },
-  gearIcon: { fontSize: 16 },
+  tabItem: { flex: 1, alignItems: 'center', gap: 3 },
+  tabIcon: { fontSize: 20, opacity: 0.35 },
+  tabIconActive: { opacity: 1 },
+  tabLabel: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.3)' },
+  tabLabelActive: { color: '#a78bfa' },
+  tabDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#a78bfa' },
+
   toast: {
     position: 'absolute',
     bottom: 100,
     alignSelf: 'center',
-    backgroundColor: 'rgba(15,23,42,0.95)',
+    backgroundColor: 'rgba(15,23,42,0.97)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     borderRadius: 20,
